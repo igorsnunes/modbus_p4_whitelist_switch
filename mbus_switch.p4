@@ -132,9 +132,12 @@ control MyIngress(inout headers hdr,
                   inout metadata meta,
                   inout standard_metadata_t standard_metadata) {
 
-    register<bit<32>>(1) regmbap;
+    counter(255, CounterType.packets_and_bytes) ingressMbapCounterHit;
+    counter(255, CounterType.packets_and_bytes) ingressMbapCounterDrop;
     bool to_drop = false;
     register<bit<9>>(250) map_in_eg_port;
+    register<bit<1>>(1) debug_flags;
+    register<bit<8>>(1) debug_mbap;
     bit<9> master_port;
     bit<9> slave_port;
 
@@ -202,19 +205,52 @@ control MyIngress(inout headers hdr,
         const entries = { 255 : NoAction; }
         default_action = drop;
     }
+    action WhiteListAndCount() {
+        ingressMbapCounterHit.count((bit<32>) standard_metadata.ingress_port);
+    }
+    action DropAndCount() {
+        ingressMbapCounterDrop.count((bit<32>) standard_metadata.ingress_port);
+        mark_to_drop(standard_metadata);
+    }
+    table whitelist_mbap_pkts_table {
+        key = { hdr.ipv4.dstAddr : exact;
+                hdr.mbap.fcode : exact ;
+                hdr.mbap.unit_id : exact; }
+        actions = { WhiteListAndCount; DropAndCount;}
+        default_action = DropAndCount;
+        size = 1024;
+    }
     apply {
         master_port = 0;
         slave_port = 0;
         if (true/*hdr.ipv4.isValid()*/)
         {
-            ipv4_lpm.apply();
-            if(hdr.tcp.isValid()) {
-                if (is_dst_port_mbus_table.apply().hit) {
-                    filter_to_slaves_table.apply();
-                }
-                else if (is_src_port_mbus_table.apply().hit) {
-                    filter_to_master_table.apply();
-                    shoud_drop_table.apply(); 
+            if (ipv4_lpm.apply().hit) {
+                if (hdr.tcp.isValid()) {
+                    if (is_dst_port_mbus_table.apply().hit) {
+                        filter_to_slaves_table.apply();
+                        if (hdr.tcp.fin ==  0 && hdr.tcp.syn == 0 && hdr.tcp.rst == 0) {
+                            debug_mbap.write((bit<32>)0, hdr.mbap.unit_id);
+                            debug_mbap.write((bit<32>)0, hdr.mbap.fcode);
+                            whitelist_mbap_pkts_table.apply();
+                        }
+                    }
+                    else if (is_src_port_mbus_table.apply().hit) {
+                        filter_to_master_table.apply();
+                        shoud_drop_table.apply(); 
+                        if (hdr.tcp.fin ==  0 && hdr.tcp.syn == 0 && hdr.tcp.rst == 0) {
+                            debug_mbap.write((bit<32>)0, hdr.mbap.unit_id);
+                            debug_mbap.write((bit<32>)0, hdr.mbap.fcode);
+                            whitelist_mbap_pkts_table.apply();
+                        }
+                    }
+                    debug_flags.write((bit<32>)0, hdr.tcp.fin);
+                    debug_flags.write((bit<32>)0, hdr.tcp.syn);
+                    debug_flags.write((bit<32>)0, hdr.tcp.psh);
+                    debug_flags.write((bit<32>)0, hdr.tcp.ack);
+                    debug_flags.write((bit<32>)0, hdr.tcp.urg);
+                    debug_flags.write((bit<32>)0, hdr.tcp.ece);
+                    debug_flags.write((bit<32>)0, hdr.tcp.rst);
                 }
             }
             else {
