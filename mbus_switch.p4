@@ -4,6 +4,7 @@
 
 const bit<16> TYPE_IPV4 = 0x800;
 
+const bit<8>  TYPE_TCP  = 6;
 /*************************************************************************
 *********************** H E A D E R S  ***********************************
 *************************************************************************/
@@ -59,7 +60,7 @@ header mbap_t {
     bit<16>   protocol_id;
     bit<16>   length;
     bit<8>    unit_id;
-    //bit<8>    fcode;
+    bit<8>    fcode;
 }
 struct metadata {
     /* empty */
@@ -95,7 +96,10 @@ parser MyParser(packet_in packet,
 
     state parse_ipv4 {
         packet.extract(hdr.ipv4);
-        transition parse_tcp;
+        transition select(hdr.ipv4.protocol){
+            TYPE_TCP: parse_tcp;
+            default: accept;
+        }
     }
     state parse_tcp {
         packet.extract(hdr.tcp);
