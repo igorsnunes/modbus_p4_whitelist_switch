@@ -136,8 +136,6 @@ control MyIngress(inout headers hdr,
     counter(255, CounterType.packets_and_bytes) ingressMbapCounterDrop;
     bool to_drop = false;
     register<bit<9>>(250) map_in_eg_port;
-    register<bit<1>>(1) debug_flags;
-    register<bit<8>>(1) debug_mbap;
     bit<9> master_port;
     bit<9> slave_port;
 
@@ -190,8 +188,7 @@ control MyIngress(inout headers hdr,
         default_action = drop;
     }
     action update_slave() {
-        slave_port = standard_metadata.ingress_port;
-        map_in_eg_port.write((bit<32>)standard_metadata.ingress_port, slave_port);
+        map_in_eg_port.write((bit<32>)standard_metadata.ingress_port, standard_metadata.egress_spec);
     }
     table filter_to_master_table {
         key = { slave_port : exact; }
@@ -230,27 +227,20 @@ control MyIngress(inout headers hdr,
                     if (is_dst_port_mbus_table.apply().hit) {
                         filter_to_slaves_table.apply();
                         if (hdr.tcp.fin ==  0 && hdr.tcp.syn == 0 && hdr.tcp.rst == 0) {
-                            debug_mbap.write((bit<32>)0, hdr.mbap.unit_id);
-                            debug_mbap.write((bit<32>)0, hdr.mbap.fcode);
                             whitelist_mbap_pkts_table.apply();
                         }
                     }
                     else if (is_src_port_mbus_table.apply().hit) {
                         filter_to_master_table.apply();
-                        shoud_drop_table.apply(); 
-                        if (hdr.tcp.fin ==  0 && hdr.tcp.syn == 0 && hdr.tcp.rst == 0) {
-                            debug_mbap.write((bit<32>)0, hdr.mbap.unit_id);
-                            debug_mbap.write((bit<32>)0, hdr.mbap.fcode);
+                        shoud_drop_table.apply();
+                        if (slave_port != standard_metadata.egress_spec)
+                        {
+                            drop();
+                        }
+                        else if (hdr.tcp.fin ==  0 && hdr.tcp.syn == 0 && hdr.tcp.rst == 0) {
                             whitelist_mbap_pkts_table.apply();
                         }
                     }
-                    debug_flags.write((bit<32>)0, hdr.tcp.fin);
-                    debug_flags.write((bit<32>)0, hdr.tcp.syn);
-                    debug_flags.write((bit<32>)0, hdr.tcp.psh);
-                    debug_flags.write((bit<32>)0, hdr.tcp.ack);
-                    debug_flags.write((bit<32>)0, hdr.tcp.urg);
-                    debug_flags.write((bit<32>)0, hdr.tcp.ece);
-                    debug_flags.write((bit<32>)0, hdr.tcp.rst);
                 }
             }
             else {
